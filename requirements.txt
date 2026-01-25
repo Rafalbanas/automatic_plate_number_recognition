@@ -1,0 +1,12 @@
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+numpy>=1.24
+pandas>=2.0
+pytesseract>=0.3.10
+tqdm>=4.66
+PyYAML>=6.0
+kaggle>=1.5.12
+Pillow>=9.5.0
+torch>=2.0.0
+kagglehub>=0.4.1
+cv2>=0.0.1
