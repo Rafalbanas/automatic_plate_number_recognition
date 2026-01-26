@@ -1,34 +1,14 @@
-# macOS / VS Code
-.DS_Store
-.vscode/
-
-# Python envs
-.venv/
-.venv_export/
-**/.venv/
-**/.venv_export/
 __pycache__/
-*.py[cod]
-
-# Logs / temp
-*.log
-tmp/
-
-# Ultralytics / training outputs
+*.pyc
+.venv/
+venv/
 runs/
-**/runs/
-*.pt
-
-# Data (duże)
-data/raw/
-data/prepared/
-data/fastplate_pl/
-data/**/images/
-data/**/labels/
-
-# Modele / eksporty
 trained_models/
+data/raw/
+*.pt
 *.onnx
-*.keras
-
-
+*.pth
+*.engine
+*.log
+.DS_Store
+LPRNet_Pytorch/
