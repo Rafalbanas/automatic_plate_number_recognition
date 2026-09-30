@@ -12,3 +12,4 @@ data/raw/
 *.log
 .DS_Store
 LPRNet_Pytorch/
+*.part

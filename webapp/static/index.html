@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Plates — rozpoznawanie tablic</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Plates">
+      <span class="brand-mark">PL</span><span>plates<span class="dot">.</span></span>
+    </a>
+    <div class="top-actions">
+      <span class="model-state"><i></i><span data-i18n="ready">Model gotowy</span></span>
+      <button class="lang" id="langButton" type="button" aria-label="Change language">EN</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <p class="eyebrow" data-i18n="eyebrow">LOKALNE DEMO ALPR</p>
+      <h1 data-i18n="headline">Tablica odczytana.<br><em>Bez zewnętrznego OCR.</em></h1>
+      <p class="lead" data-i18n="lead">Dodaj zdjęcie pojazdu. Model wykryje tablicę i spróbuje odczytać jej numer bez zewnętrznych usług OCR.</p>
+    </section>
+
+    <section class="workspace">
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-describedby="dropHint">
+        <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+        <div class="empty-state" id="emptyState">
+          <div class="scan-icon"><span></span></div>
+          <h2 data-i18n="dropTitle">Upuść zdjęcie tutaj</h2>
+          <p id="dropHint"><span data-i18n="dropHint">albo</span> <button id="browseButton" type="button" data-i18n="browse">wybierz plik</button></p>
+          <p class="paste-hint"><kbd>Ctrl</kbd> + <kbd>V</kbd> <span data-i18n="paste">aby wkleić ze schowka</span></p>
+          <small data-i18n="limits">JPEG, PNG lub WebP · maks. 4 MB · do 12 MP</small>
+        </div>
+        <div class="preview-wrap" id="previewWrap" hidden>
+          <img id="preview" alt="">
+          <canvas id="overlay"></canvas>
+          <div class="processing" id="processing" hidden><span></span><b data-i18n="processing">Analizuję obraz…</b></div>
+        </div>
+      </div>
+
+      <aside class="result-panel" id="resultPanel">
+        <div class="result-placeholder" id="resultPlaceholder">
+          <span>01</span>
+          <p data-i18n="resultWaiting">Wynik pojawi się tutaj po analizie zdjęcia.</p>
+        </div>
+        <div id="resultContent" hidden>
+          <p class="result-label" data-i18n="recognized">ODCZYTANY NUMER</p>
+          <div class="plate-value" id="plateValue">—</div>
+          <div class="meta-row"><span data-i18n="time">Czas przetwarzania</span><strong id="elapsed">—</strong></div>
+          <p class="result-note" id="resultNote"></p>
+          <button class="clear" id="clearButton" type="button" data-i18n="clear">Wyczyść zdjęcie i wynik</button>
+        </div>
+      </aside>
+    </section>
+
+    <section class="examples" id="examples" hidden>
+      <div><p class="eyebrow" data-i18n="examples">PRZYKŁADOWE ZDJĘCIA</p><p data-i18n="examplesHint">Kliknij, aby przetestować demo.</p></div>
+      <div class="example-grid" id="exampleGrid"></div>
+    </section>
+
+    <section class="privacy">
+      <div class="privacy-icon">◎</div>
+      <div><h2 data-i18n="privacyTitle">Przetwarzanie bez utrwalania</h2><p data-i18n="privacyText">Zdjęcie przechodzi przez istniejący proxy Cloudflare i jest przetwarzane ulotnie przez tę aplikację. Aplikacja ani Nginx nie zapisują pliku, odczytanego numeru ani treści obrazu w logach. Dane nie są używane do treningu.</p></div>
+    </section>
+  </main>
+
+  <footer><span>plates.banas.dev</span><span data-i18n="footer">Projekt demonstracyjny · wynik może zawierać błędy</span></footer>
+  <script src="/app.js" defer></script>
+</body>
+</html>

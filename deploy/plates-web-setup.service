@@ -1,0 +1,36 @@
+[Unit]
+Description=Install Plates web dependencies and cache ONNX models
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=plates-web
+Group=plates-web
+WorkingDirectory=/opt/plates-web
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=XDG_CACHE_HOME=/var/cache/plates-web
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+ExecStart=/usr/bin/python3 -m venv /var/lib/plates-web/venv
+ExecStart=/var/lib/plates-web/venv/bin/python -m pip install --disable-pip-version-check -r /opt/plates-web/requirements-web.txt
+ExecStart=/var/lib/plates-web/venv/bin/python /opt/plates-web/scripts/warm_models.py
+Nice=10
+CPUQuota=80%
+MemoryHigh=1536M
+MemoryMax=2048M
+MemorySwapMax=0
+OOMPolicy=stop
+Restart=no
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/plates-web
+ReadWritePaths=/var/lib/plates-web /var/cache/plates-web
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true

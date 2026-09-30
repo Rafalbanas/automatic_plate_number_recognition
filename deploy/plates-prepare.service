@@ -1,0 +1,35 @@
+[Unit]
+Description=Prepare Plates training environment and Open Images dataset
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=plates-ml
+Group=plates-ml
+WorkingDirectory=/opt/plates-web
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PIP_NO_CACHE_DIR=1
+Environment=PLATES_APP_ROOT=/opt/plates-web
+Environment=PLATES_TRAINING_ROOT=/var/lib/plates-training
+ExecStart=/usr/bin/python3 /opt/plates-web/scripts/resource_guard.py --status /var/lib/plates-training/prepare-resource-status.json --effective-total-mb 4096 --minimum-available-mb 768 --low-seconds 30 -- /usr/bin/nice -n 15 /opt/plates-web/scripts/run_prepare_pipeline.sh
+Nice=15
+CPUQuota=80%
+IOSchedulingClass=idle
+MemoryHigh=1536M
+MemoryMax=2048M
+MemorySwapMax=0
+OOMPolicy=stop
+Restart=no
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/plates-web
+ReadWritePaths=/var/lib/plates-training
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
