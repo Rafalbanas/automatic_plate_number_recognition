@@ -19,7 +19,18 @@ if [ ! -f "$RUNS/smoke/weights/last.pt" ]; then
   "$PYTHON" "$APP_ROOT/scripts/train_detector.py" --data "$DATA" --project "$RUNS" --name smoke --epochs 1 --fraction 0.03
 fi
 
-"$PYTHON" "$APP_ROOT/scripts/train_detector.py" --data "$DATA" --project "$RUNS" --name plate-detector --epochs 40 --resume
+LAST_EPOCH=0
+if [ -f "$RUNS/plate-detector/results.csv" ]; then
+  LAST_EPOCH=$(tail -n 1 "$RUNS/plate-detector/results.csv" | cut -d, -f1 | tr -d ' ')
+fi
+case "$LAST_EPOCH" in
+  ''|*[!0-9]*) LAST_EPOCH=0 ;;
+esac
+if [ "${LAST_EPOCH:-0}" -lt 40 ]; then
+  "$PYTHON" "$APP_ROOT/scripts/train_detector.py" --data "$DATA" --project "$RUNS" --name plate-detector --epochs 40 --resume
+else
+  echo "[train] 40 epochs already complete; skipping training" >&2
+fi
 
 "$PYTHON" "$APP_ROOT/scripts/evaluate_detector.py" \
   --data "$DATA" \

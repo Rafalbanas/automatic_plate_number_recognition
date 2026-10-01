@@ -25,7 +25,7 @@ Repozytorium zawiera też niezależny, powtarzalny pipeline treningu detektora.
 Trening nie jest potrzebny do działania bieżącego demo, ale pozwala odtworzyć
 własne wagi i rzetelnie ocenić je na niewidzianym zbiorze testowym.
 
-### Zweryfikowany stan wdrożenia (2026-09-30)
+### Zweryfikowany stan wdrożenia (2026-10-01)
 
 - HTTPS, health check i prawdziwy upload działają pod `plates.banas.dev`;
 - na VPS przykład `TEST123` został wykryty i odczytany poprawnie w 92 ms;
@@ -39,16 +39,17 @@ własne wagi i rzetelnie ocenić je na niewidzianym zbiorze testowym.
 - przygotowanie osiągnęło 267,1 MiB w pomiarze co 5 s (minimum
   `MemAvailable`: 2455,3 MiB); smoke test trwał 53,6 s i zapisał checkpointy w
   `/var/lib/plates-training/runs/smoke/weights`;
-- trening właściwy rozpoczął się o 21:06 UTC i w chwili tego zapisu nadal
-  trwa. Pierwsza pełna epoka zajęła 334 s, zapisała `last.pt`, `best.pt` i
-  `epoch0.pt`, a zmierzony szczyt wynosił 764,6 MiB bez swapu. Przy niezmiennej
-  szybkości 40 epok potrwa około 3 h 43 min plus końcowa ocena (może zakończyć
-  się wcześniej przez `patience=12`).
+- trening ukończył 40/40 epok w 2 h 57 min, zapisał `last.pt`, `best.pt` oraz
+  checkpoint każdej epoki. Szczyt całego zadania wyniósł 1030,9 MiB, minimum
+  `MemAvailable` 1971,4 MiB, swap pozostał równy 0 B;
+- końcowa ocena na 137 niewidzianych obrazach testowych: precision 0,8044,
+  recall 0,7381, mAP50 0,7085 i mAP50-95 0,4846. Ocena trwała 18,955 s,
+  średnio 138 ms/obraz razem z narzutem uruchomienia i metryk; raport znajduje
+  się w `/var/lib/plates-training/evaluation.json`.
 
-Te dwa obrazy demonstracyjne nie są zbiorem statystycznym. Pełne metryki
-detektora są publikowane dopiero przez `evaluate_detector.py` po zakończeniu
-treningu; zbiór Open Images nie ma tekstowych etykiet OCR, więc nie wolno z
-niego wyliczać dokładności odczytu numerów.
+Te dwa obrazy demonstracyjne nie są zbiorem statystycznym. Powyższe metryki
+dotyczą wyłącznie detekcji tablic. Zbiór Open Images nie ma tekstowych etykiet
+OCR, więc nie wolno z niego wyliczać dokładności odczytu numerów.
 
 ## Ustalenia z audytu pierwotnego projektu
 
