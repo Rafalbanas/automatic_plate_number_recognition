@@ -16,6 +16,8 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--fraction", type=float, default=1.0)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--device", default="cpu", help="cpu or CUDA device index, e.g. 0")
+    parser.add_argument("--batch", type=int, default=1)
     args = parser.parse_args()
 
     os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -30,7 +32,7 @@ def main() -> None:
     if args.resume and last.is_file():
         print(f"[train] resuming {last}", flush=True)
         model = YOLO(str(last))
-        model.train(resume=True)
+        model.train(resume=True, device=args.device, batch=args.batch)
     else:
         print("[train] starting from official yolo11n.pt pretrained weights", flush=True)
         # The systemd service has a read-only application directory. Keep the
@@ -41,11 +43,11 @@ def main() -> None:
             data=str(args.data),
             epochs=args.epochs,
             imgsz=416,
-            batch=1,
+            batch=args.batch,
             workers=0,
             cache=False,
-            device="cpu",
-            amp=False,
+            device=args.device,
+            amp=args.device != "cpu",
             project=str(args.project),
             name=args.name,
             exist_ok=True,

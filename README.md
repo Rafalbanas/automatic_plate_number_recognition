@@ -169,6 +169,66 @@ Ręczne odtworzenie (po przygotowaniu danych):
 Ultralytics i jego wagi są dostępne na AGPL-3.0; wygenerowanych checkpointów nie
 należy przenosić do zamkniętego produktu bez sprawdzenia obowiązków licencyjnych.
 
+## Odtworzenie treningu na polskim zbiorze Kaggle
+
+Na jawne żądanie użytkownika dodano osobny pipeline dla
+`piotrstefaskiue/poland-vehicle-license-plate-dataset` (wersja 6).
+Nie zastępuje on wag produkcyjnych ani treningu Open Images. Licencja Kaggle
+pozostaje oznaczona jako „Other”; przed redystrybucją danych lub wag trzeba
+ustalić warunki z autorem. Dane i modele nie są dodawane do Git.
+
+Na VPS **wszystkie duże pliki pozostają na `/storage`**:
+
+```bash
+mkdir -p /storage/plates-kaggle/{tmp,cache,pip-cache}
+export TMPDIR=/storage/plates-kaggle/tmp
+export PIP_CACHE_DIR=/storage/plates-kaggle/pip-cache
+export KAGGLEHUB_CACHE=/storage/plates-kaggle/cache
+PYTHON=/var/lib/plates-training/venv/bin/python
+"$PYTHON" -m pip install -r requirements-kaggle.txt
+"$PYTHON" -c 'import kagglehub; print(kagglehub.dataset_download("piotrstefaskiue/poland-vehicle-license-plate-dataset/versions/6"))'
+"$PYTHON" scripts/prepare_kaggle.py \
+  --raw-dir "$KAGGLEHUB_CACHE/datasets/piotrstefaskiue/poland-vehicle-license-plate-dataset/versions/6" \
+  --out-dir /storage/plates-kaggle/dataset --seed 2026
+bash scripts/run_kaggle_training.sh
+```
+
+Przygotowanie odmawia nadpisania niepustego katalogu. Wersja 6 zawiera 290
+zdjęć, 290 ramek i 290 tekstowych etykiet. SHA-256 i dHash tworzą 196 grup,
+dzielonych deterministycznie (seed 2026) na 156 train, 20 val i 114 test.
+To nie gwarantuje rozdzielenia według fizycznego pojazdu. `manifest.json`
+zapisuje hashe i przypisania, `gt.csv` zachowuje tekst przypisany do każdej ramki.
+Nie jest to trening OCR — pipeline uczy detekcji; odczyt w aplikacji nadal
+realizuje istniejący Fast Plate OCR. Poprzednie metryki Open Images nie są
+wynikami Kaggle.
+
+Skrypt uruchamia smoke test, następnie do 40 epok YOLO11n (416 px), zapisuje
+checkpoint co epokę i ocenia `best.pt` na niewidzianym teście. Wyniki:
+`/storage/plates-kaggle/runs/kaggle-detector/weights/{best,last}.pt` i
+`/storage/plates-kaggle/evaluation.json`. Przerwany trening można wznowić tym
+samym poleceniem; nie należy zmieniać danych/splitów w istniejącym runie.
+
+Na stacji z CUDA zainstaluj PyTorch z oficjalnego indeksu odpowiedniego dla
+sterownika, a potem `requirements-train.txt`. Użyj osobnego katalogu stanu,
+skopiuj przygotowany dataset i zmień jego `dataset.yaml:path` na lokalny
+katalog. Zachowaj manifest i podziały bez ponownego losowania:
+
+```bash
+PLATES_KAGGLE_ROOT="$HOME/plates-training" \
+PLATES_TRAINING_PYTHON="$HOME/plates-training/venv/bin/python" \
+PLATES_DEVICE=0 PLATES_BATCH=8 bash scripts/run_kaggle_training.sh
+```
+
+Wagi bazowe `yolo11n.pt` są pobierane do katalogu stanu, nie repozytorium.
+Ocena końcowa działa na CPU przy tych samych 416 px. Na VPS uruchamiaj trening
+z limitami systemd i `scripts/resource_guard.py`, jak w poprzedniej sekcji;
+zwykłe uruchomienie skryptu samo nie nakłada limitu pamięci.
+
+GitHub Actions (`.github/workflows/ci.yml`) uruchamia testy na push i PR, bez
+pobierania danych, modeli, CUDA ani wykonywania treningu. Podobnie jak w
+`banasdev` i `weronikarafal` akcje są przypięte do commitów i mają tylko
+`contents: read`. Automatyczne wdrożenie produkcji nie jest włączone tym PR.
+
 ## Prywatność i limity aplikacji
 
 Przeglądarka wysyła surowe bajty JPEG/PNG/WebP, nie formularz multipart. Serwer
