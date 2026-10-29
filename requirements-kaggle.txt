@@ -1,0 +1,3 @@
+# Kaggle stage: dataset download tooling only (no CUDA, no torch upgrade).
+Pillow==12.3.0
+kagglehub==1.0.3

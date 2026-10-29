@@ -169,6 +169,102 @@ Ręczne odtworzenie (po przygotowaniu danych):
 Ultralytics i jego wagi są dostępne na AGPL-3.0; wygenerowanych checkpointów nie
 należy przenosić do zamkniętego produktu bez sprawdzenia obowiązków licencyjnych.
 
+## Odtworzenie treningu na polskim zbiorze Kaggle
+
+Na jawne żądanie użytkownika dodano osobny pipeline dla
+`piotrstefaskiue/poland-vehicle-license-plate-dataset` (wersja 6).
+Nie zastępuje on wag produkcyjnych ani treningu Open Images. Licencja Kaggle
+pozostaje oznaczona jako „Other”; przed redystrybucją danych lub wag trzeba
+ustalić warunki z autorem. Dane i modele nie są dodawane do Git.
+
+Na VPS **wszystkie duże pliki pozostają na `/storage`**:
+
+```bash
+mkdir -p /storage/plates-kaggle/{tmp,cache,pip-cache}
+export TMPDIR=/storage/plates-kaggle/tmp
+export PIP_CACHE_DIR=/storage/plates-kaggle/pip-cache
+export KAGGLEHUB_CACHE=/storage/plates-kaggle/cache
+PYTHON=/var/lib/plates-training/venv/bin/python
+"$PYTHON" -m pip install -r requirements-kaggle.txt
+"$PYTHON" -c 'import kagglehub; print(kagglehub.dataset_download("piotrstefaskiue/poland-vehicle-license-plate-dataset/versions/6"))'
+"$PYTHON" scripts/prepare_kaggle.py \
+  --raw-dir "$KAGGLEHUB_CACHE/datasets/piotrstefaskiue/poland-vehicle-license-plate-dataset/versions/6" \
+  --out-dir /storage/plates-kaggle/dataset --seed 2026
+bash scripts/run_kaggle_training.sh
+```
+
+Przygotowanie odmawia nadpisania niepustego katalogu. Wersja 6 zawiera 290
+zdjęć, 290 ramek i 290 tekstowych etykiet. SHA-256 i dHash tworzą 196 grup,
+dzielonych deterministycznie (seed 2026) na 156 train, 20 val i 114 test.
+To nie gwarantuje rozdzielenia według fizycznego pojazdu. `manifest.json`
+zapisuje hashe i przypisania, `gt.csv` zachowuje tekst przypisany do każdej ramki.
+Nie jest to trening OCR — pipeline uczy detekcji; odczyt w aplikacji nadal
+realizuje istniejący Fast Plate OCR. Poprzednie metryki Open Images nie są
+wynikami Kaggle.
+
+Skrypt uruchamia smoke test, następnie do 40 epok YOLO11n (416 px), zapisuje
+checkpoint co epokę i ocenia `best.pt` na niewidzianym teście. Wyniki:
+`/storage/plates-kaggle/runs/kaggle-detector/weights/{best,last}.pt` i
+`/storage/plates-kaggle/evaluation.json`. Przerwany trening można wznowić tym
+samym poleceniem; nie należy zmieniać danych/splitów w istniejącym runie.
+
+Na stacji z CUDA zainstaluj PyTorch z oficjalnego indeksu odpowiedniego dla
+sterownika, a potem `requirements-train.txt`. Użyj osobnego katalogu stanu,
+skopiuj przygotowany dataset i zmień jego `dataset.yaml:path` na lokalny
+katalog. Zachowaj manifest i podziały bez ponownego losowania:
+
+```bash
+PLATES_KAGGLE_ROOT="$HOME/plates-training" \
+PLATES_TRAINING_PYTHON="$HOME/plates-training/venv/bin/python" \
+PLATES_DEVICE=0 PLATES_BATCH=8 bash scripts/run_kaggle_training.sh
+```
+
+Wagi bazowe `yolo11n.pt` są pobierane do katalogu stanu, nie repozytorium.
+Ocena końcowa działa na CPU przy tych samych 416 px. Na VPS uruchamiaj trening
+z limitami systemd i `scripts/resource_guard.py`, jak w poprzedniej sekcji;
+zwykłe uruchomienie skryptu samo nie nakłada limitu pamięci.
+
+### Wynik treningu Kaggle (2026-10-29)
+
+Trening na `ssh stacjonarka`, RTX 3060 12 GB, Python 3.12.16,
+PyTorch 2.11.0+cu128 i Ultralytics 8.4.170 zakończył się poprawnie po 33
+epokach: early stopping (patience 12), najlepszy checkpoint z epoki 21.
+Trening z końcową walidacją trwał 202,462 s; batch 8, 416 px, seed 2026.
+
+Ocena `best.pt` na **114 niewidzianych zdjęciach testowych**:
+
+| Metryka detekcji | Wynik |
+| --- | ---: |
+| Precision | 1,0000 |
+| Recall | 0,8675 |
+| mAP50 | 0,9478 |
+| mAP50–95 | 0,6494 |
+
+Ocena na CPU stacji trwała 5,754 s (50,48 ms/obraz z narzutem metryk);
+nie jest to pomiar aplikacji ani VPS. Nie mierzy dokładności OCR.
+Mały test z jednego źródła nie gwarantuje takiej skuteczności na innych zdjęciach.
+
+Wagi i pełne wyniki skopiowano na VPS:
+`/storage/plates-kaggle/gpu-results/runs/kaggle-detector/weights/best.pt`
+(także `last.pt` i checkpointy epok), raport
+`/storage/plates-kaggle/gpu-results/evaluation.json` oraz log `training.log`.
+Raport zachowuje oryginalną ścieżkę wag na stacji. SHA-256 `best.pt`:
+`3ac7cb0438e869bcf55859f8b76e24bf35727bf14b82b9bebcf8199aa450b5c7`.
+Manifest na obu maszynach ma ten sam SHA-256:
+`c28066ca487758ab1aeeefbba5342b7cf5d1b35f0e1c0c4f6e1bb7d37c4a2569`.
+Freeze zależności i dane GPU są w `/storage/plates-kaggle/` jako
+`environment-freeze.txt` i `gpu-environment.csv`. Wagi nie zostały wdrożone
+do aplikacji produkcyjnej.
+
+GitHub Actions (`.github/workflows/ci.yml`) uruchamia testy na push i PR, bez
+pobierania danych, modeli, CUDA ani wykonywania treningu. Podobnie jak w
+`banasdev` i `weronikarafal` akcje są przypięte do commitów i mają tylko
+`contents: read`. Zawiera także bramkowane CD z dokładnie przetestowanym
+artefaktem, ograniczonym SSH, kontrolą wersji procesu i rollbackiem. Domyślnie
+CD jest wyłączone — aktywacja wymaga przygotowania VPS, sekretów środowiska
+`production` i zmiennej `PLATES_CD_ENABLED=true`. Instrukcja:
+[`deploy/README.md`](deploy/README.md). Sam PR nie migruje produkcji ani modeli.
+
 ## Prywatność i limity aplikacji
 
 Przeglądarka wysyła surowe bajty JPEG/PNG/WebP, nie formularz multipart. Serwer
