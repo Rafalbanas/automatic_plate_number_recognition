@@ -259,7 +259,11 @@ do aplikacji produkcyjnej.
 GitHub Actions (`.github/workflows/ci.yml`) uruchamia testy na push i PR, bez
 pobierania danych, modeli, CUDA ani wykonywania treningu. Podobnie jak w
 `banasdev` i `weronikarafal` akcje są przypięte do commitów i mają tylko
-`contents: read`. Automatyczne wdrożenie produkcji nie jest włączone tym PR.
+`contents: read`. Zawiera także bramkowane CD z dokładnie przetestowanym
+artefaktem, ograniczonym SSH, kontrolą wersji procesu i rollbackiem. Domyślnie
+CD jest wyłączone — aktywacja wymaga przygotowania VPS, sekretów środowiska
+`production` i zmiennej `PLATES_CD_ENABLED=true`. Instrukcja:
+[`deploy/README.md`](deploy/README.md). Sam PR nie migruje produkcji ani modeli.
 
 ## Prywatność i limity aplikacji
 

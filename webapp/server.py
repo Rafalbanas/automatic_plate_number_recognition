@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -24,6 +25,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 LOG = logging.getLogger("plates")
 ENGINE = PlateEngine()
 CAPACITY = threading.BoundedSemaphore(value=1)
+
+# Fetched once at module startup, so a running process reports the code it
+# actually ran without re-reading files on every request.
+REVISION_FILE = ROOT / "revision.txt"
+
+
+def _startup_facts() -> dict[str, str]:
+    revision = "development"
+    if REVISION_FILE.is_file():
+        revision = REVISION_FILE.read_text(encoding="ascii").strip().lower()
+    try:
+        index_sha = hashlib.sha256((STATIC / "index.html").read_bytes()).hexdigest()
+    except OSError:
+        index_sha = ""
+    return {"revision": revision, "index_sha256": index_sha}
+
+
+HEALTH_FACTS = _startup_facts()
 
 MIME = {
     ".html": "text/html; charset=utf-8",
@@ -60,7 +79,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urlsplit(self.path).path
         if path == "/healthz":
-            self._json(HTTPStatus.OK, {"status": "ready", "model": "loaded"})
+            self._json(
+                HTTPStatus.OK,
+                {"status": "ready", "model": "loaded", **HEALTH_FACTS},
+            )
             return
         if path == "/":
             path = "/index.html"

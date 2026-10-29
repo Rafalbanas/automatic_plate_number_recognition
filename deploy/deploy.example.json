@@ -1,0 +1,11 @@
+{
+  "state_dir": "/storage/plates-deploy",
+  "releases_dir": "/storage/plates-deploy/releases",
+  "current_link": "/storage/plates-deploy/current",
+  "health_url": "http://127.0.0.1:20145/healthz",
+  "requirements_sha256": "f72141f4196f9055b3bf2afc169a3210884a12ebe3c18d0303a572efe608608e",
+  "max_archive_bytes": 16777216,
+  "max_extracted_bytes": 16777216,
+  "health_attempts": 10,
+  "health_interval": 2
+}

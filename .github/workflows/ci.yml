@@ -1,4 +1,4 @@
-name: CI
+name: CI and deploy plates.banas.dev
 on:
   push:
   pull_request:
@@ -18,7 +18,66 @@ jobs:
         run: python -m pip install -r requirements-test.txt
       - name: Check source and shell syntax
         run: |
-          python -m compileall -q scripts tests webapp
+          python -m compileall -q scripts tests webapp deploy
           bash -n scripts/run_kaggle_training.sh
+          bash -n deploy/ssh-command.sh
       - name: Test image validation and Kaggle preparation
         run: python -m unittest discover -s tests -v
+      - name: Package the tested application (no data or models)
+        run: python scripts/package.py "$GITHUB_SHA" release.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-${{ github.sha }}
+          path: release.zip
+          retention-days: 7
+          if-no-files-found: error
+  deploy:
+    needs: test
+    if: vars.PLATES_CD_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment:
+      name: production
+      url: https://plates.banas.dev
+    concurrency:
+      group: plates-production
+      cancel-in-progress: false
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_PORT: ${{ secrets.VPS_PORT }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release-${{ github.sha }}
+      - name: Configure restricted deployment identity
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$VPS_HOST" && test -n "$VPS_PORT" && test -n "$VPS_USER"
+          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
+      - name: Deploy exact tested archive, rejecting stale revisions
+        run: |
+          set -euo pipefail
+          head=$(git ls-remote origin refs/heads/main | cut -f1)
+          test "$head" = "$GITHUB_SHA"
+          ssh_args=(-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -p "$VPS_PORT")
+          live=$(ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" status)
+          [[ "$live" =~ ^[a-f0-9]{40}$ ]]
+          git merge-base --is-ancestor "$live" "$GITHUB_SHA"
+          digest=$(sha256sum release.zip | cut -d ' ' -f1)
+          ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" "deploy $GITHUB_SHA $digest" < release.zip
+          deployed=$(ssh "${ssh_args[@]}" "$VPS_USER@$VPS_HOST" status)
+          test "$deployed" = "$GITHUB_SHA"
+      - name: Remove SSH identity
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
