@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import os
 import re
 import threading
@@ -8,6 +9,7 @@ import time
 from dataclasses import dataclass
 from statistics import mean
 from typing import Any
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -19,6 +21,9 @@ MAX_DIMENSION = int(os.getenv("PLATES_MAX_DIMENSION", "4096"))
 DETECTOR_MODEL = os.getenv(
     "PLATES_DETECTOR_MODEL", "yolo-v9-t-384-license-plate-end2end"
 )
+DETECTOR_BACKEND = os.getenv("PLATES_DETECTOR_BACKEND", "hub")
+KAGGLE_MODEL_PATH = os.getenv("PLATES_KAGGLE_MODEL_PATH", "")
+KAGGLE_MODEL_SHA256 = os.getenv("PLATES_KAGGLE_MODEL_SHA256", "")
 OCR_MODEL = os.getenv("PLATES_OCR_MODEL", "cct-xs-v2-global-model")
 DETECTION_CONFIDENCE = float(os.getenv("PLATES_DETECTION_CONFIDENCE", "0.35"))
 MIN_OCR_CONFIDENCE = float(os.getenv("PLATES_MIN_OCR_CONFIDENCE", "0.45"))
@@ -78,18 +83,107 @@ def decode_image(payload: bytes, content_type: str) -> tuple[np.ndarray, int, in
     return np.ascontiguousarray(bgr), int(rgb.shape[1]), int(rgb.shape[0])
 
 
+class KaggleDetector:
+    """Single-class YOLO11n ONNX, fixed batch 1 / 416 px, CPU only.
+
+    The weights are provisioned separately, never downloaded by the web app.
+    Pre/postprocessing matches Ultralytics square letterbox + class-agnostic NMS.
+    """
+
+    def __init__(self, path: str, digest: str, confidence: float) -> None:
+        if not path or not re.fullmatch(r"[a-f0-9]{64}", digest):
+            raise ValueError("Kaggle detector requires a path and pinned SHA-256")
+        model_path = Path(path)
+        if not model_path.is_absolute() or not model_path.is_file():
+            raise ValueError("Kaggle model must be an existing absolute file")
+        if model_path.stat().st_size > 32 * 1024 * 1024:
+            raise ValueError("Kaggle model exceeds the 32 MiB limit")
+        if hashlib.sha256(model_path.read_bytes()).hexdigest() != digest:
+            raise ValueError("Kaggle model SHA-256 mismatch")
+        if not 0 < confidence < 1:
+            raise ValueError("Detector confidence must be between 0 and 1")
+        import onnxruntime as ort
+
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = 1
+        options.inter_op_num_threads = 1
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        self.session = ort.InferenceSession(str(model_path), sess_options=options, providers=["CPUExecutionProvider"])
+        inputs, outputs = self.session.get_inputs(), self.session.get_outputs()
+        if len(inputs) != 1 or inputs[0].shape != [1, 3, 416, 416] or inputs[0].type != "tensor(float)":
+            raise ValueError("Expected a float32 YOLO input [1,3,416,416]")
+        if len(outputs) != 1 or outputs[0].shape != [1, 5, 3549]:
+            raise ValueError("Expected single-class YOLO output [1,5,3549] without embedded NMS")
+        self.input_name = inputs[0].name
+        self.confidence = confidence
+
+    @staticmethod
+    def preprocess(frame: np.ndarray) -> tuple[np.ndarray, float, int, int]:
+        height, width = frame.shape[:2]
+        gain = min(416 / width, 416 / height)
+        resized_w, resized_h = max(1, round(width * gain)), max(1, round(height * gain))
+        left = round((416 - resized_w) / 2 - 0.1)
+        top = round((416 - resized_h) / 2 - 0.1)
+        image = cv2.resize(frame, (resized_w, resized_h), interpolation=cv2.INTER_LINEAR)
+        image = cv2.copyMakeBorder(image, top, 416 - resized_h - top, left,
+                                   416 - resized_w - left, cv2.BORDER_CONSTANT, value=(114, 114, 114))
+        tensor = np.ascontiguousarray(image[:, :, ::-1].transpose(2, 0, 1)[None], dtype=np.float32) / 255.0
+        return tensor, gain, left, top
+
+    def postprocess(self, output: np.ndarray, width: int, height: int,
+                    gain: float, left: int, top: int) -> list[tuple[list[int], float]]:
+        if output.shape != (1, 5, 3549):
+            raise ValueError("Unexpected Kaggle detector output")
+        rows = output[0].T
+        valid = (np.isfinite(rows).all(axis=1) & (rows[:, 4] >= self.confidence)
+                 & (rows[:, 4] <= 1) & (rows[:, 2] > 0) & (rows[:, 3] > 0))
+        rows = rows[valid]
+        if not len(rows):
+            return []
+        boxes = np.column_stack((rows[:, 0] - rows[:, 2] / 2,
+                                 rows[:, 1] - rows[:, 3] / 2, rows[:, 2], rows[:, 3]))
+        indices = cv2.dnn.NMSBoxes(boxes.tolist(), rows[:, 4].tolist(), self.confidence, 0.7)
+        detections = []
+        for index in np.asarray(indices).reshape(-1):
+            x, y, w, h = boxes[index]
+            x1, x2 = np.clip([(x - left) / gain, (x + w - left) / gain], 0, width)
+            y1, y2 = np.clip([(y - top) / gain, (y + h - top) / gain], 0, height)
+            bbox = [int(round(v)) for v in (x1, y1, x2, y2)]
+            if bbox[2] > bbox[0] and bbox[3] > bbox[1]:
+                detections.append((bbox, float(rows[index, 4])))
+            if len(detections) == 3:  # bound the number of OCR calls per request
+                break
+        return detections
+
+    def predict(self, frame: np.ndarray) -> list[Any]:
+        from open_image_models.detection.core.base import DetectionResult
+
+        tensor, gain, left, top = self.preprocess(frame)
+        output = self.session.run(None, {self.input_name: tensor})[0]
+        return [DetectionResult.from_detection_data(tuple(box), score, "plate")
+                for box, score in self.postprocess(output, frame.shape[1], frame.shape[0], gain, left, top)]
+
+
+def create_alpr() -> Any:
+    """Load the selected detector explicitly; invalid Kaggle config never silently falls back."""
+    from fast_alpr import ALPR
+
+    if DETECTOR_BACKEND not in {"hub", "kaggle"}:
+        raise ValueError("Unknown PLATES_DETECTOR_BACKEND")
+    options = {"ocr_model": OCR_MODEL, "ocr_device": "cpu", "detector_conf_thresh": DETECTION_CONFIDENCE}
+    if DETECTOR_BACKEND == "kaggle":
+        options["detector"] = KaggleDetector(KAGGLE_MODEL_PATH, KAGGLE_MODEL_SHA256, DETECTION_CONFIDENCE)
+    else:
+        options["detector_model"] = DETECTOR_MODEL
+    return ALPR(**options)
+
+
 class PlateEngine:
     """One process-wide model pair; calls are serialized to cap memory use."""
 
     def __init__(self) -> None:
-        from fast_alpr import ALPR
-
         self._lock = threading.Lock()
-        self._model = ALPR(
-            detector_model=DETECTOR_MODEL,
-            ocr_model=OCR_MODEL,
-            detector_conf_thresh=DETECTION_CONFIDENCE,
-        )
+        self._model = create_alpr()
         # Warm both ONNX sessions without writing any user data.
         self._model.predict(np.zeros((384, 384, 3), dtype=np.uint8))
 

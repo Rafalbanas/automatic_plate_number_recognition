@@ -3,24 +3,20 @@
 from __future__ import annotations
 
 import json
-import os
+import sys
 import time
+from pathlib import Path
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 
 def main() -> None:
-    from fast_alpr import ALPR
+    from webapp.inference import create_alpr
 
     started = time.perf_counter()
-    model = ALPR(
-        detector_model=os.getenv(
-            "PLATES_DETECTOR_MODEL", "yolo-v9-t-384-license-plate-end2end"
-        ),
-        ocr_model=os.getenv("PLATES_OCR_MODEL", "cct-xs-v2-global-model"),
-        detector_conf_thresh=0.35,
-        ocr_device="cpu",
-    )
+    model = create_alpr()
     result = model.predict(np.zeros((384, 384, 3), dtype=np.uint8))
     print(
         json.dumps(

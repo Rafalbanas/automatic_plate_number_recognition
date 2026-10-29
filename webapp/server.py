@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .inference import InputError, MAX_FILE_BYTES, PlateEngine
+from .inference import InputError, MAX_FILE_BYTES, PlateEngine, DETECTOR_BACKEND, KAGGLE_MODEL_SHA256
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
@@ -39,7 +39,9 @@ def _startup_facts() -> dict[str, str]:
         index_sha = hashlib.sha256((STATIC / "index.html").read_bytes()).hexdigest()
     except OSError:
         index_sha = ""
-    return {"revision": revision, "index_sha256": index_sha}
+    return {"revision": revision, "index_sha256": index_sha,
+            "detector_backend": DETECTOR_BACKEND,
+            "detector_sha256": KAGGLE_MODEL_SHA256 if DETECTOR_BACKEND == "kaggle" else ""}
 
 
 HEALTH_FACTS = _startup_facts()

@@ -112,3 +112,39 @@ weryfikuje katalog, atomowo przełącza `current`, restartuje jednostkę i spraw
 jej health. Zachowaj co najmniej bieżące i poprzednie wydanie; automatyczne
 usuwanie starych wydań nie jest zaimplementowane. Nie usuwaj katalogów danych,
 cache modeli ani checkpointów przy sprzątaniu wydań.
+
+## Promocja detektora Kaggle (nie zmienia OCR)
+
+Wagi są zarządzane przez administratora niezależnie od CD kodu. Nie dodawaj
+ONNX do archiwum wydania ani do `webapp/static`. Wersjonowany model i jego
+manifest są na `/storage/plates-models`, root-owned, model 0444, katalog 0755.
+Nowy kod obsługuje `PLATES_DETECTOR_BACKEND=hub|kaggle`; domyślnie nadal `hub`.
+
+1. Wyeksportuj zaufany `best.pt` skryptem `scripts/export_kaggle_detector.py`
+   w środowisku treningowym z ONNX 1.23.2. Porównaj predykcje ONNX i PyTorch
+   na tych samych testowych obrazach przy `conf=0.35`, `iou=0.7`, `rect=False`,
+   `imgsz=416`, `max_det=3`. Nie dostrajaj progów na teście.
+2. Sprawdź adapter w osobnym procesie/canary z nieuprzywilejowanym kontem,
+   tym samym OCR i limitami `plates-web.service`. Sprawdź prawdziwą inferencję,
+   pusty obraz, błędny upload, backend/hash w health i zużycie RAM.
+3. Wdróż przetestowany kod z `main` przez istniejące CD, jeszcze bez zmiany
+   środowiska modelu. Odbiornik nie instaluje modelu i nie zmienia drop-inów.
+4. Sprawdź SHA pliku ONNX i zgodność `deploy/plates-kaggle.conf`, następnie:
+
+   ```bash
+   sudo install -o root -g root -m 0644 deploy/plates-kaggle.conf \
+     /etc/systemd/system/plates-web.service.d/kaggle.conf
+   sudo systemctl daemon-reload
+   sudo systemctl restart plates-web.service
+   curl -fsS http://127.0.0.1:20145/healthz
+   ```
+
+   Wymagaj `detector_backend=kaggle` i oczekiwanego `detector_sha256`.
+   Sprawdź publiczny upload i pamięć. To przełączenie wymaga krótkiego restartu.
+5. W razie niepowodzenia usuń **tylko utworzony drop-in `kaggle.conf`**,
+   przeładuj systemd i zrestartuj usługę: wróci jawny domyślny `hub`.
+   Nie usuwaj ONNX ani starego cache modeli, kodu wydań i checkpointów.
+
+Automatyczny rollback kodu nadal działa. W starszym kodzie sprzed adaptera
+zmienne Kaggle są ignorowane i działa poprzedni detektor; po rollbacku zawsze
+sprawdź backend/model, nie tylko numer commita. Samo CD kodu nie promuje wag.
