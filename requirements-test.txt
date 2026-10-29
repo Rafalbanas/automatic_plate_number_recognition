@@ -1,0 +1,4 @@
+# Validation/preparation tests only: no torch, CUDA, ONNX or model downloads.
+Pillow==12.3.0
+numpy==2.5.4
+opencv-python-headless==5.0.0.93
