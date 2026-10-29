@@ -9,11 +9,16 @@ zdjęciu i odczytuje tekst lokalnie na VPS, bez zewnętrznej usługi OCR.
 Ścieżka produkcyjna używa dwóch małych modeli ONNX ładowanych raz przy starcie
 jednego procesu:
 
-- detektor `yolo-v9-t-384-license-plate-end2end` z projektu
+- dotychczasowy/domyślny detektor `yolo-v9-t-384-license-plate-end2end` z projektu
   [Open Image Models](https://github.com/ankandrew/open-image-models);
 - OCR `cct-xs-v2-global-model` z projektu
   [Fast Plate OCR](https://github.com/ankandrew/fast-plate-ocr);
 - integracja przez [FastALPR](https://github.com/ankandrew/fast-alpr).
+
+Można jawnie przełączyć detektor na własny YOLO11n wytrenowany na Kaggle v6,
+wyeksportowany do ONNX 416 px. OCR pozostaje ten sam. Konfiguracja, walidacja
+hashem i bezpieczne przełączenie są opisane poniżej oraz w
+[`deploy/README.md`](deploy/README.md). Wagi nie wchodzą do paczki CD.
 
 Wszystkie trzy projekty są publikowane na licencji MIT. Modele pobiera jednostka
 setup i przechowuje w `/var/cache/plates-web/.cache`; nie są commitowane.
@@ -264,6 +269,51 @@ artefaktem, ograniczonym SSH, kontrolą wersji procesu i rollbackiem. Domyślnie
 CD jest wyłączone — aktywacja wymaga przygotowania VPS, sekretów środowiska
 `production` i zmiennej `PLATES_CD_ENABLED=true`. Instrukcja:
 [`deploy/README.md`](deploy/README.md). Sam PR nie migruje produkcji ani modeli.
+
+## Podłączenie własnego detektora Kaggle
+
+W środowisku treningowym (nie w venv WWW) zainstaluj `onnx==1.23.2`, a potem:
+
+```bash
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
+  /var/lib/plates-training/venv/bin/python scripts/export_kaggle_detector.py \
+  --weights /storage/plates-kaggle/gpu-results/runs/kaggle-detector/weights/best.pt \
+  --out-dir /storage/plates-models
+```
+
+Eksport: opset 17, float32, statyczne `[1,3,416,416]`, surowe pojedynczoklasowe
+wyjście `[1,5,3549]`, bez NMS w grafie. Adapter wykonuje RGB, letterbox 114,
+normalizację, NMS IoU 0,7 i mapuje ramki na oryginalny obraz. Maksymalnie 3
+ramki są przekazywane do istniejącego OCR. ONNX Runtime działa na CPU z jednym
+wątkiem; serwer **nie importuje PyTorch/Ultralytics** i nie potrzebuje CUDA.
+
+Gotowy artefakt:
+`/storage/plates-models/kaggle-v6-yolo11n-416-486fc6548bd5a0e3.onnx`, SHA-256:
+`486fc6548bd5a0e354b9d9824a8825c7f966edb99c6a8a957143b8a0b7fe7f5d`.
+Checkpoint źródłowy pozostaje niezmieniony. Manifest obok ONNX wiąże oba hashe.
+Eksporter nie nadpisuje istniejącego artefaktu. Ponowny eksport inną wersją
+bibliotek może dać inny hash — wymaga wtedy zatwierdzenia nowej konfiguracji.
+
+Sprawdzono zgodność ONNX z `best.pt` na wszystkich 114 obrazach testowych przy
+`conf=0.35`, `iou=0.7`, `rect=False`, 416 px i maks. 3 detekcjach: 104 ramki,
+brak rozbieżności liczby wyników, największa różnica confidence 0,00000144,
+różnica współrzędnych poniżej 0,5 px (zaokrąglenie do pikseli). To kontrola
+eksportu, nie nowa metryka mAP ani dokładność OCR; progi nie były strojone na
+teście. Pełny raport: `/storage/plates-models/parity-report.json`.
+
+`PLATES_DETECTOR_BACKEND=hub` (domyślnie) zachowuje dawny detektor.
+`PLATES_DETECTOR_BACKEND=kaggle` wymaga absolutnego `PLATES_KAGGLE_MODEL_PATH`
+i przypiętego `PLATES_KAGGLE_MODEL_SHA256`. Zły hash, brak pliku lub niewłaściwy
+format zatrzymuje start; nie ma cichego fallbacku ani pobierania wag z sieci.
+`/healthz` raportuje backend i hash wybranej konfiguracji po poprawnym
+załadowaniu i warmup modeli. Testy CI mockują sesję ONNX i nie pobierają modeli.
+
+Najpierw sprawdź nowe wydanie na osobnym porcie i z limitami pamięci. Następnie,
+po wdrożeniu kodu obsługującego adapter, zainstaluj zatwierdzony
+`deploy/plates-kaggle.conf` jako drop-in systemd i uruchom ponownie aplikację.
+Instrukcja i rollback są w `deploy/README.md`. Dane Kaggle i ONNX nie są
+udostępniane przez HTTP. Licencja danych pozostaje niejasna („Other”); wagi
+Ultralytics wiążą się z obowiązkami AGPL opisanymi w sekcji treningowej.
 
 ## Prywatność i limity aplikacji
 
